@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BlackTerm</string>
+    <string name="settings">Settings</string>
+
+    <!-- Appearance -->
+    <string name="pref_category_appearance">Appearance</string>
+    <string name="pref_bg_color">Background Color</string>
+    <string name="pref_bg_color_summary">Terminal background color (hex)</string>
+    <string name="pref_fg_color">Foreground Color</string>
+    <string name="pref_fg_color_summary">Terminal text color (hex)</string>
+
+    <!-- Font -->
+    <string name="pref_category_font">Font</string>
+    <string name="pref_font_size">Font Size</string>
+    <string name="pref_font_family">Font Family</string>
+
+    <!-- SSH Server -->
+    <string name="pref_category_ssh">SSH Server</string>
+    <string name="pref_ssh_enabled">Enable SSH Server</string>
+    <string name="pref_ssh_enabled_summary">Start SSH server for remote access</string>
+    <string name="pref_ssh_port">SSH Port</string>
+    <string name="pref_ssh_username">SSH Username</string>
+    <string name="pref_ssh_password">SSH Password</string>
+
+    <!-- FTP Server -->
+    <string name="pref_category_ftp">FTP Server</string>
+    <string name="pref_ftp_enabled">Enable FTP Server</string>
+    <string name="pref_ftp_enabled_summary">Start FTP server for file transfer</string>
+    <string name="pref_ftp_port">FTP Port</string>
+    <string name="pref_ftp_username">FTP Username</string>
+    <string name="pref_ftp_password">FTP Password</string>
+
+    <!-- Advanced -->
+    <string name="pref_category_advanced">Advanced</string>
+    <string name="pref_terminal_columns">Terminal Columns</string>
+    <string name="pref_terminal_rows">Terminal Rows</string>
+    <string name="pref_scrollback_lines">Scrollback Lines</string>
+    <string name="pref_keep_screen_on">Keep Screen On</string>
+    <string name="pref_keep_screen_on_summary">Prevent screen from turning off</string>
+    <string name="pref_vibrate_on_key">Vibrate on Key Press</string>
+    <string name="pref_vibrate_on_key_summary">Haptic feedback when pressing keys</string>
+
+    <!-- Font size entries -->
+    <string-array name="font_size_entries">
+        <item>10</item>
+        <item>12</item>
+        <item>14</item>
+        <item>16</item>
+        <item>18</item>
+        <item>20</item>
+        <item>22</item>
+        <item>24</item>
+    </string-array>
+    <string-array name="font_size_values">
+        <item>10</item>
+        <item>12</item>
+        <item>14</item>
+        <item>16</item>
+        <item>18</item>
+        <item>20</item>
+        <item>22</item>
+        <item>24</item>
+    </string-array>
+
+    <!-- Font family entries -->
+    <string-array name="font_family_entries">
+        <item>Monospace</item>
+        <item>Sans Serif</item>
+        <item>Serif</item>
+    </string-array>
+    <string-array name="font_family_values">
+        <item>monospace</item>
+        <item>sans-serif</item>
+        <item>serif</item>
+    </string-array>
+
+    <!-- Color presets -->
+    <string-array name="color_entries">
+        <item>Black (#000000)</item>
+        <item>Dark Gray (#1a1a2e)</item>
+        <item>Navy (#16213e)</item>
+        <item>Dark Blue (#0f3460)</item>
+        <item>White (#FFFFFF)</item>
+    </string-array>
+    <string-array name="bg_color_values">
+        <item>#000000</item>
+        <item>#1a1a2e</item>
+        <item>#16213e</item>
+        <item>#0f3460</item>
+        <item>#FFFFFF</item>
+    </string-array>
+
+    <string-array name="fg_color_entries">
+        <item>Green (#00FF00)</item>
+        <item>White (#FFFFFF)</item>
+        <item>Amber (#FFB000)</item>
+        <item>Cyan (#00FFFF)</item>
+        <item>Red (#e94560)</item>
+        <item>Light Gray (#CCCCCC)</item>
+    </string-array>
+    <string-array name="fg_color_values">
+        <item>#00FF00</item>
+        <item>#FFFFFF</item>
+        <item>#FFB000</item>
+        <item>#00FFFF</item>
+        <item>#e94560</item>
+        <item>#CCCCCC</item>
+    </string-array>
+</resources>

@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Appearance -->
+    <PreferenceCategory android:title="@string/pref_category_appearance">
+
+        <ListPreference
+            android:key="bg_color"
+            android:title="@string/pref_bg_color"
+            android:summary="@string/pref_bg_color_summary"
+            android:entries="@array/color_entries"
+            android:entryValues="@array/bg_color_values"
+            android:defaultValue="#000000" />
+
+        <ListPreference
+            android:key="fg_color"
+            android:title="@string/pref_fg_color"
+            android:summary="@string/pref_fg_color_summary"
+            android:entries="@array/fg_color_entries"
+            android:entryValues="@array/fg_color_values"
+            android:defaultValue="#00FF00" />
+
+    </PreferenceCategory>
+
+    <!-- Font -->
+    <PreferenceCategory android:title="@string/pref_category_font">
+
+        <ListPreference
+            android:key="font_size"
+            android:title="@string/pref_font_size"
+            android:entries="@array/font_size_entries"
+            android:entryValues="@array/font_size_values"
+            android:defaultValue="14" />
+
+        <ListPreference
+            android:key="font_family"
+            android:title="@string/pref_font_family"
+            android:entries="@array/font_family_entries"
+            android:entryValues="@array/font_family_values"
+            android:defaultValue="monospace" />
+
+    </PreferenceCategory>
+
+    <!-- SSH Server -->
+    <PreferenceCategory android:title="@string/pref_category_ssh">
+
+        <CheckBoxPreference
+            android:key="ssh_enabled"
+            android:title="@string/pref_ssh_enabled"
+            android:summary="@string/pref_ssh_enabled_summary"
+            android:defaultValue="false" />
+
+        <EditTextPreference
+            android:key="ssh_port"
+            android:title="@string/pref_ssh_port"
+            android:defaultValue="8022"
+            android:dependency="ssh_enabled"
+            android:inputType="number" />
+
+        <EditTextPreference
+            android:key="ssh_username"
+            android:title="@string/pref_ssh_username"
+            android:defaultValue="admin"
+            android:dependency="ssh_enabled" />
+
+        <EditTextPreference
+            android:key="ssh_password"
+            android:title="@string/pref_ssh_password"
+            android:defaultValue="blackterm"
+            android:dependency="ssh_enabled"
+            android:inputType="textPassword" />
+
+    </PreferenceCategory>
+
+    <!-- FTP Server -->
+    <PreferenceCategory android:title="@string/pref_category_ftp">
+
+        <CheckBoxPreference
+            android:key="ftp_enabled"
+            android:title="@string/pref_ftp_enabled"
+            android:summary="@string/pref_ftp_enabled_summary"
+            android:defaultValue="false" />
+
+        <EditTextPreference
+            android:key="ftp_port"
+            android:title="@string/pref_ftp_port"
+            android:defaultValue="2121"
+            android:dependency="ftp_enabled"
+            android:inputType="number" />
+
+        <EditTextPreference
+            android:key="ftp_username"
+            android:title="@string/pref_ftp_username"
+            android:defaultValue="admin"
+            android:dependency="ftp_enabled" />
+
+        <EditTextPreference
+            android:key="ftp_password"
+            android:title="@string/pref_ftp_password"
+            android:defaultValue="blackterm"
+            android:dependency="ftp_enabled"
+            android:inputType="textPassword" />
+
+    </PreferenceCategory>
+
+    <!-- Advanced -->
+    <PreferenceCategory android:title="@string/pref_category_advanced">
+
+        <EditTextPreference
+            android:key="terminal_columns"
+            android:title="@string/pref_terminal_columns"
+            android:defaultValue="80"
+            android:inputType="number" />
+
+        <EditTextPreference
+            android:key="terminal_rows"
+            android:title="@string/pref_terminal_rows"
+            android:defaultValue="24"
+            android:inputType="number" />
+
+        <EditTextPreference
+            android:key="scrollback_lines"
+            android:title="@string/pref_scrollback_lines"
+            android:defaultValue="1000"
+            android:inputType="number" />
+
+        <CheckBoxPreference
+            android:key="keep_screen_on"
+            android:title="@string/pref_keep_screen_on"
+            android:summary="@string/pref_keep_screen_on_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="vibrate_on_key"
+            android:title="@string/pref_vibrate_on_key"
+            android:summary="@string/pref_vibrate_on_key_summary"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>
