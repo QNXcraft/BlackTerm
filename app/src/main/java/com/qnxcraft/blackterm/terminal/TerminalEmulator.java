@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
+import java.util.Map;
 
 /**
  * Core terminal emulator handling PTY process and VT100/ANSI escape sequences.
@@ -76,38 +77,81 @@ public class TerminalEmulator {
     }
 
     public void start() {
-        try {
-            String shell = "/system/bin/sh";
-            java.io.File shellFile = new java.io.File(shell);
-            if (!shellFile.exists()) {
-                shell = "/bin/sh";
+        String[][] candidates = new String[][] {
+                {"/system/bin/sh", "-i"},
+                {"/system/xbin/sh", "-i"},
+                {"/bin/sh", "-i"},
+                {"sh", "-i"},
+                {"/system/bin/sh"},
+                {"/system/xbin/sh"},
+                {"/bin/sh"},
+                {"sh"}
+        };
+
+        StringBuilder failures = new StringBuilder();
+        for (int i = 0; i < candidates.length; i++) {
+            String[] cmd = candidates[i];
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                Map<String, String> env = pb.environment();
+                env.put("TERM", "xterm");
+                env.put("PATH", "/system/bin:/system/xbin:/sbin:/vendor/bin:/bin:/usr/bin");
+                env.put("COLUMNS", String.valueOf(columns));
+                env.put("LINES", String.valueOf(rows));
+                env.put("PS1", "blackterm$ ");
+                pb.directory(new java.io.File("/"));
+                pb.redirectErrorStream(true);
+
+                process = pb.start();
+                processInput = process.getOutputStream();
+                processOutput = process.getInputStream();
+                running = true;
+
+                readerThread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        readProcessOutput();
+                    }
+                }, "TerminalReader");
+                readerThread.setDaemon(true);
+                readerThread.start();
+
+                Thread watcher = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            int exitCode = process.waitFor();
+                            if (running) {
+                                appendText("\r\n[Shell exited: " + exitCode + "]\r\n");
+                            }
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }, "TerminalProcessWatcher");
+                watcher.setDaemon(true);
+                watcher.start();
+
+                appendText("[Started shell: " + joinCommand(cmd) + "]\r\n");
+                return;
+            } catch (IOException e) {
+                failures.append(joinCommand(cmd))
+                        .append(" -> ")
+                        .append(e.getClass().getSimpleName())
+                        .append(": ")
+                        .append(e.getMessage())
+                        .append("\n");
+            } catch (SecurityException e) {
+                failures.append(joinCommand(cmd))
+                        .append(" -> ")
+                        .append(e.getClass().getSimpleName())
+                        .append(": ")
+                        .append(e.getMessage())
+                        .append("\n");
             }
-
-            ProcessBuilder pb = new ProcessBuilder(shell);
-            pb.environment().put("TERM", "xterm");
-            pb.environment().put("HOME", "/data/data/com.qnxcraft.blackterm/files");
-            pb.environment().put("PATH", "/system/bin:/system/xbin:/sbin:/vendor/bin");
-            pb.environment().put("COLUMNS", String.valueOf(columns));
-            pb.environment().put("LINES", String.valueOf(rows));
-            pb.redirectErrorStream(true);
-
-            process = pb.start();
-            processInput = process.getOutputStream();
-            processOutput = process.getInputStream();
-            running = true;
-
-            readerThread = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    readProcessOutput();
-                }
-            }, "TerminalReader");
-            readerThread.setDaemon(true);
-            readerThread.start();
-
-        } catch (IOException e) {
-            appendText("Failed to start shell: " + e.getMessage() + "\r\n");
         }
+
+        appendText("Failed to start shell. Tried commands:\r\n" + failures.toString() + "\r\n");
     }
 
     public void stop() {
@@ -172,7 +216,7 @@ public class TerminalEmulator {
     public void sendText(String text) {
         if (processInput != null && running) {
             try {
-                processInput.write(text.getBytes());
+                processInput.write(text.getBytes("UTF-8"));
                 processInput.flush();
             } catch (IOException e) {
                 // Connection lost
@@ -661,6 +705,20 @@ public class TerminalEmulator {
                 }
             });
         }
+    }
+
+    private String joinCommand(String[] cmd) {
+        if (cmd == null || cmd.length == 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cmd.length; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(cmd[i]);
+        }
+        return sb.toString();
     }
 
     // Getters
