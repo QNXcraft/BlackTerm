@@ -5,24 +5,19 @@
     android:viewportWidth="48"
     android:viewportHeight="48">
 
-    <!-- Background rounded rectangle -->
+    <!-- Background -->
     <path
         android:fillColor="#1a1a2e"
-        android:pathData="M4,8C4,5.79 5.79,4 8,4L40,4C42.21,4 44,5.79 44,8L44,40C44,42.21 42.21,44 40,44L8,44C5.79,44 4,42.21 4,40Z" />
+        android:pathData="M0,0 L48,0 L48,48 L0,48 Z" />
 
-    <!-- Terminal prompt symbol > -->
+    <!-- Terminal prompt '>' as filled triangle (no stroke, API 18 safe) -->
     <path
         android:fillColor="#00FF00"
-        android:pathData="M12,16L22,24L12,32"
-        android:strokeWidth="3"
-        android:strokeColor="#00FF00"
-        android:fillColor="#00000000" />
+        android:pathData="M10,18 L20,24 L10,30 Z" />
 
-    <!-- Cursor line -->
+    <!-- Cursor block (filled rectangle) -->
     <path
         android:fillColor="#00FF00"
-        android:pathData="M24,30L36,30"
-        android:strokeWidth="2"
-        android:strokeColor="#00FF00" />
+        android:pathData="M23,28 L36,28 L36,31 L23,31 Z" />
 
 </vector>
