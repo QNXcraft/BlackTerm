@@ -36,7 +36,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" \
-            "platforms;android-18" \
+            "platforms;android-33" \
             "build-tools;33.0.2"
 
       - name: Build debug APK
