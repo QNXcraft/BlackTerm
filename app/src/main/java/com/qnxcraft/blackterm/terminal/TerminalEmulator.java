@@ -308,7 +308,7 @@ public class TerminalEmulator {
                     cursorCol = Math.min(nextTab, columns - 1);
                 } else if (c == '\007') {
                     // Bell - ignore
-                } else if (c >= ' ') {
+                } else if (c >= ' ' && c != 0x7f) {
                     putChar(c);
                 }
                 break;
@@ -708,20 +708,37 @@ public class TerminalEmulator {
     }
 
     private void appendLocalEcho(String text) {
-        StringBuilder sb = new StringBuilder(text.length());
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '\n') {
-                sb.append("\r\n");
-            } else if (c == '\r') {
-                sb.append("\r");
-            } else if (c == '\t') {
-                sb.append('\t');
-            } else {
-                sb.append(c);
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < text.length(); i++) {
+                    char c = text.charAt(i);
+                    if (c == '\n') {
+                        processChar('\r');
+                        processChar('\n');
+                    } else if (c == '\r') {
+                        processChar('\r');
+                    } else if (c == '\t') {
+                        processChar('\t');
+                    } else if (c == '\b' || c == 0x7f) {
+                        applyLocalBackspace();
+                    } else if (c >= ' ' && c != 0x7f) {
+                        processChar(c);
+                    }
+                }
+                notifyUpdate();
             }
+        });
+    }
+
+    private void applyLocalBackspace() {
+        if (cursorCol > 0) {
+            cursorCol--;
+            screen[cursorRow][cursorCol] = ' ';
+            int idx = cursorRow * columns + cursorCol;
+            fgColors[idx] = reverseMode ? currentBgColor : currentFgColor;
+            bgColors[idx] = reverseMode ? currentFgColor : currentBgColor;
         }
-        appendText(sb.toString());
     }
 
     private void notifyUpdate() {
