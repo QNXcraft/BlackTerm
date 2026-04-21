@@ -36,6 +36,7 @@ public class TerminalEmulator {
     private InputStream processOutput;
     private Thread readerThread;
     private volatile boolean running = false;
+    private boolean localEchoEnabled = true;
 
     private TerminalListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -214,13 +215,23 @@ public class TerminalEmulator {
     }
 
     public void sendText(String text) {
+        if (text == null || text.length() == 0) {
+            return;
+        }
+
+        if (localEchoEnabled) {
+            appendLocalEcho(text);
+        }
+
         if (processInput != null && running) {
             try {
                 processInput.write(text.getBytes("UTF-8"));
                 processInput.flush();
             } catch (IOException e) {
-                // Connection lost
+                appendText("\r\n[Input write failed: " + e.getMessage() + "]\r\n");
             }
+        } else {
+            appendText("\r\n[Shell is not running]\r\n");
         }
     }
 
@@ -233,7 +244,7 @@ public class TerminalEmulator {
                 sendText("\033");
                 break;
             case android.view.KeyEvent.KEYCODE_ENTER:
-                sendText("\r");
+                sendText("\n");
                 break;
             case android.view.KeyEvent.KEYCODE_DEL:
                 sendText("\177");
@@ -694,6 +705,23 @@ public class TerminalEmulator {
                 notifyUpdate();
             }
         });
+    }
+
+    private void appendLocalEcho(String text) {
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\n') {
+                sb.append("\r\n");
+            } else if (c == '\r') {
+                sb.append("\r");
+            } else if (c == '\t') {
+                sb.append('\t');
+            } else {
+                sb.append(c);
+            }
+        }
+        appendText(sb.toString());
     }
 
     private void notifyUpdate() {

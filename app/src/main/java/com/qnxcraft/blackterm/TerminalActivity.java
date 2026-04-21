@@ -60,6 +60,7 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         rootLayout.addView(buttonBar);
 
         setContentView(rootLayout);
+        terminalView.requestFocus();
 
         applyPreferences(prefs);
 

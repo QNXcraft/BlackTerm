@@ -167,6 +167,28 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
     }
 
     @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (handleKeyEvent(keyCode, event)) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_ENTER ||
+                keyCode == KeyEvent.KEYCODE_DEL ||
+                keyCode == KeyEvent.KEYCODE_TAB ||
+                keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
         outAttrs.inputType = InputType.TYPE_NULL;
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
