@@ -32,13 +32,13 @@ jobs:
       - name: Install Android SDK components
         run: |
           sdkmanager --install \
-            "platforms;android-33" \
-            "build-tools;33.0.2"
+            "platforms;android-34" \
+            "build-tools;34.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 7.5.1
+          gradle-version: 8.4
 
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
