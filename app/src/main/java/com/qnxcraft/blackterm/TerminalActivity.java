@@ -1,70 +1,134 @@
 package com.qnxcraft.blackterm;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
-import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
-import android.widget.ScrollView;
-import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.PopupMenu;
 
 import com.qnxcraft.blackterm.terminal.TerminalEmulator;
 import com.qnxcraft.blackterm.terminal.TerminalView;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class TerminalActivity extends Activity implements SharedPreferences.OnSharedPreferenceChangeListener {
 
-    private TerminalView terminalView;
-    private TerminalEmulator terminalEmulator;
+    private static final int MENU_NEW_TAB = 1;
+    private static final int MENU_CLOSE_TAB = 2;
+    private static final int MENU_RESTART_TAB = 3;
+    private static final int MENU_TOGGLE_KEYBOARD = 4;
+    private static final int MENU_PASTE = 5;
+    private static final int MENU_SETTINGS = 6;
+    private static final int MENU_ABOUT = 7;
+
+    private SharedPreferences prefs;
     private LinearLayout rootLayout;
+    private LinearLayout tabStrip;
     private LinearLayout buttonBar;
-    private Button burgerButton;
+    private FrameLayout terminalContainer;
+    private ImageButton burgerButton;
     private boolean shiftPressed = false;
     private boolean capsLockOn = false;
+    private boolean ctrlPressed = false;
     private Button shiftButton;
     private Button capsButton;
+    private Button ctrlButton;
+    private final List<TerminalSession> sessions = new ArrayList<TerminalSession>();
+    private int activeSessionIndex = -1;
+    private int nextSessionId = 1;
+
+    private static final class TerminalSession {
+        final int id;
+        final TerminalEmulator emulator;
+        final TerminalView view;
+        final Button tabButton;
+
+        TerminalSession(int id, TerminalEmulator emulator, TerminalView view, Button tabButton) {
+            this.id = id;
+            this.emulator = emulator;
+            this.view = view;
+            this.tabButton = tabButton;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        prefs = PreferenceManager.getDefaultSharedPreferences(this);
         prefs.registerOnSharedPreferenceChangeListener(this);
 
         rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setBackgroundColor(Color.BLACK);
 
-        terminalEmulator = new TerminalEmulator(80, 24);
-        terminalView = new TerminalView(this, terminalEmulator);
-        terminalView.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
+        rootLayout.addView(createTabBar());
 
-        rootLayout.addView(terminalView);
+        terminalContainer = new FrameLayout(this);
+        terminalContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
+        rootLayout.addView(terminalContainer);
 
         buttonBar = createButtonBar();
         rootLayout.addView(buttonBar);
 
         setContentView(rootLayout);
-        terminalView.requestFocus();
 
         applyPreferences(prefs);
+        createNewSession();
+    }
 
-        terminalEmulator.start();
+    private View createTabBar() {
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setBackgroundColor(Color.parseColor("#111827"));
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(2));
+
+        HorizontalScrollView scrollView = new HorizontalScrollView(this);
+        scrollView.setHorizontalScrollBarEnabled(false);
+        scrollView.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        tabStrip = new LinearLayout(this);
+        tabStrip.setOrientation(LinearLayout.HORIZONTAL);
+        scrollView.addView(tabStrip, new HorizontalScrollView.LayoutParams(
+                HorizontalScrollView.LayoutParams.WRAP_CONTENT,
+                HorizontalScrollView.LayoutParams.WRAP_CONTENT));
+        topBar.addView(scrollView);
+
+        Button addTabButton = new Button(this);
+        addTabButton.setText("+");
+        addTabButton.setTextColor(Color.WHITE);
+        addTabButton.setAllCaps(false);
+        addTabButton.setBackgroundColor(Color.parseColor("#0f3460"));
+        addTabButton.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(44), dpToPx(36)));
+        addTabButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                createNewSession();
+            }
+        });
+        topBar.addView(addTabButton);
+
+        return topBar;
     }
 
     private LinearLayout createButtonBar() {
@@ -79,8 +143,12 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
                 0, dpToPx(42), 1.0f);
         btnParams.setMargins(dpToPx(2), 0, dpToPx(2), 0);
 
-        // Burger menu button
-        burgerButton = createBarButton("\u2630", btnParams);
+        burgerButton = new ImageButton(this);
+        burgerButton.setImageResource(android.R.drawable.ic_menu_more);
+        burgerButton.setColorFilter(Color.WHITE);
+        burgerButton.setBackgroundColor(Color.parseColor("#16213e"));
+        burgerButton.setLayoutParams(btnParams);
+        burgerButton.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
         burgerButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -89,46 +157,59 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         });
         bar.addView(burgerButton);
 
-        // Tab button
         Button tabButton = createBarButton("TAB", btnParams);
         tabButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                terminalEmulator.sendKeyCode(KeyEvent.KEYCODE_TAB);
+                TerminalSession session = getActiveSession();
+                if (session != null) {
+                    session.emulator.sendKeyCode(KeyEvent.KEYCODE_TAB);
+                }
             }
         });
         bar.addView(tabButton);
 
-        // Escape button
         Button escButton = createBarButton("ESC", btnParams);
         escButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                terminalEmulator.sendKeyCode(KeyEvent.KEYCODE_ESCAPE);
+                TerminalSession session = getActiveSession();
+                if (session != null) {
+                    session.emulator.sendKeyCode(KeyEvent.KEYCODE_ESCAPE);
+                }
             }
         });
         bar.addView(escButton);
 
-        // Shift button
+        ctrlButton = createBarButton("CTRL", btnParams);
+        ctrlButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                ctrlPressed = !ctrlPressed;
+                updateModifierButtons();
+                syncActiveModifierState();
+            }
+        });
+        bar.addView(ctrlButton);
+
         shiftButton = createBarButton("SHIFT", btnParams);
         shiftButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 shiftPressed = !shiftPressed;
                 updateModifierButtons();
-                terminalView.setShiftState(shiftPressed);
+                syncActiveModifierState();
             }
         });
         bar.addView(shiftButton);
 
-        // Caps Lock button
         capsButton = createBarButton("CAPS", btnParams);
         capsButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 capsLockOn = !capsLockOn;
                 updateModifierButtons();
-                terminalView.setCapsLockState(capsLockOn);
+                syncActiveModifierState();
             }
         });
         bar.addView(capsButton);
@@ -148,7 +229,140 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         return btn;
     }
 
+    private Button createSessionTabButton(String label) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dpToPx(36));
+        params.setMargins(0, 0, dpToPx(4), 0);
+
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(12);
+        button.setAllCaps(false);
+        button.setTextColor(Color.WHITE);
+        button.setBackgroundColor(Color.parseColor("#16213e"));
+        button.setLayoutParams(params);
+        button.setPadding(dpToPx(10), dpToPx(2), dpToPx(10), dpToPx(2));
+        return button;
+    }
+
+    private void createNewSession() {
+        final TerminalEmulator emulator = new TerminalEmulator(
+                parseIntPreference("terminal_columns", 80),
+                parseIntPreference("terminal_rows", 24));
+        emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
+
+        final TerminalView view = new TerminalView(this, emulator);
+        view.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        view.setOnPasteRequestedListener(new TerminalView.OnPasteRequestedListener() {
+            @Override
+            public void onPasteRequested() {
+                pasteClipboard();
+            }
+        });
+        applyPreferencesToView(view, prefs);
+
+        final TerminalSession session = new TerminalSession(
+                nextSessionId,
+                emulator,
+                view,
+                createSessionTabButton("Tab " + nextSessionId));
+        nextSessionId++;
+
+        session.tabButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                switchToSession(sessions.indexOf(session));
+            }
+        });
+
+        sessions.add(session);
+        terminalContainer.addView(view);
+        tabStrip.addView(session.tabButton);
+        emulator.start();
+        switchToSession(sessions.size() - 1);
+    }
+
+    private void closeCurrentSession() {
+        if (sessions.size() <= 1) {
+            Toast.makeText(this, "At least one tab must remain open", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int index = activeSessionIndex;
+        TerminalSession session = getActiveSession();
+        if (session == null) {
+            return;
+        }
+
+        session.emulator.stop();
+        terminalContainer.removeView(session.view);
+        tabStrip.removeView(session.tabButton);
+        sessions.remove(index);
+        switchToSession(Math.max(0, index - 1));
+    }
+
+    private void restartCurrentSession() {
+        TerminalSession session = getActiveSession();
+        if (session == null) {
+            return;
+        }
+
+        session.emulator.reset();
+        session.emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
+        session.emulator.start();
+        session.view.requestFocus();
+    }
+
+    private void switchToSession(int index) {
+        if (index < 0 || index >= sessions.size()) {
+            return;
+        }
+
+        activeSessionIndex = index;
+        for (int i = 0; i < sessions.size(); i++) {
+            TerminalSession session = sessions.get(i);
+            session.view.setVisibility(i == index ? View.VISIBLE : View.GONE);
+        }
+
+        refreshTabButtons();
+        syncActiveModifierState();
+        TerminalSession active = getActiveSession();
+        if (active != null) {
+            active.view.requestFocus();
+        }
+    }
+
+    private void refreshTabButtons() {
+        for (int i = 0; i < sessions.size(); i++) {
+            Button tabButton = sessions.get(i).tabButton;
+            if (i == activeSessionIndex) {
+                tabButton.setBackgroundColor(Color.parseColor("#0f3460"));
+                tabButton.setTextColor(Color.parseColor("#e94560"));
+            } else {
+                tabButton.setBackgroundColor(Color.parseColor("#16213e"));
+                tabButton.setTextColor(Color.WHITE);
+            }
+        }
+    }
+
+    private TerminalSession getActiveSession() {
+        if (activeSessionIndex < 0 || activeSessionIndex >= sessions.size()) {
+            return null;
+        }
+        return sessions.get(activeSessionIndex);
+    }
+
     private void updateModifierButtons() {
+        if (ctrlPressed) {
+            ctrlButton.setBackgroundColor(Color.parseColor("#0f3460"));
+            ctrlButton.setTextColor(Color.parseColor("#e94560"));
+        } else {
+            ctrlButton.setBackgroundColor(Color.parseColor("#16213e"));
+            ctrlButton.setTextColor(Color.WHITE);
+        }
+
         if (shiftPressed) {
             shiftButton.setBackgroundColor(Color.parseColor("#0f3460"));
             shiftButton.setTextColor(Color.parseColor("#e94560"));
@@ -166,32 +380,49 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         }
     }
 
+    private void syncActiveModifierState() {
+        TerminalSession session = getActiveSession();
+        if (session == null) {
+            return;
+        }
+        session.view.setCtrlState(ctrlPressed);
+        session.view.setShiftState(shiftPressed);
+        session.view.setCapsLockState(capsLockOn);
+    }
+
     private void showBurgerMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add(0, 1, 0, "New Session");
-        popup.getMenu().add(0, 2, 1, "Toggle Keyboard");
-        popup.getMenu().add(0, 3, 2, "Paste");
-        popup.getMenu().add(0, 4, 3, "Settings");
-        popup.getMenu().add(0, 5, 4, "About");
+        popup.getMenu().add(0, MENU_NEW_TAB, 0, "New Tab");
+        popup.getMenu().add(0, MENU_CLOSE_TAB, 1, "Close Tab");
+        popup.getMenu().add(0, MENU_RESTART_TAB, 2, "Restart Tab");
+        popup.getMenu().add(0, MENU_TOGGLE_KEYBOARD, 3, "Toggle Keyboard");
+        popup.getMenu().add(0, MENU_PASTE, 4, "Paste");
+        popup.getMenu().add(0, MENU_SETTINGS, 5, "Settings");
+        popup.getMenu().add(0, MENU_ABOUT, 6, "About");
 
         popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
             @Override
             public boolean onMenuItemClick(MenuItem item) {
                 switch (item.getItemId()) {
-                    case 1:
-                        terminalEmulator.reset();
-                        terminalEmulator.start();
+                    case MENU_NEW_TAB:
+                        createNewSession();
                         return true;
-                    case 2:
+                    case MENU_CLOSE_TAB:
+                        closeCurrentSession();
+                        return true;
+                    case MENU_RESTART_TAB:
+                        restartCurrentSession();
+                        return true;
+                    case MENU_TOGGLE_KEYBOARD:
                         toggleKeyboard();
                         return true;
-                    case 3:
+                    case MENU_PASTE:
                         pasteClipboard();
                         return true;
-                    case 4:
+                    case MENU_SETTINGS:
                         startActivity(new Intent(TerminalActivity.this, SettingsActivity.class));
                         return true;
-                    case 5:
+                    case MENU_ABOUT:
                         showAbout();
                         return true;
                 }
@@ -209,14 +440,20 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         }
     }
 
-    @SuppressWarnings("deprecation")
     private void pasteClipboard() {
-        android.text.ClipboardManager clipboard =
-                (android.text.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        if (clipboard != null && clipboard.hasText()) {
-            CharSequence text = clipboard.getText();
-            if (text != null) {
-                terminalEmulator.sendText(text.toString());
+        TerminalSession session = getActiveSession();
+        if (session == null) {
+            return;
+        }
+
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null && clipboard.hasPrimaryClip()) {
+            ClipData clipData = clipboard.getPrimaryClip();
+            if (clipData != null && clipData.getItemCount() > 0) {
+                CharSequence text = clipData.getItemAt(0).coerceToText(this);
+                if (text != null) {
+                    session.emulator.sendText(text.toString());
+                }
             }
         }
     }
@@ -228,29 +465,42 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
     }
 
     private void applyPreferences(SharedPreferences prefs) {
-        // Background color
+        boolean keepScreenOn = prefs.getBoolean("keep_screen_on", true);
+        if (keepScreenOn) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+
+        for (int i = 0; i < sessions.size(); i++) {
+            TerminalSession session = sessions.get(i);
+            session.emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
+            applyPreferencesToView(session.view, prefs);
+        }
+    }
+
+    private void applyPreferencesToView(TerminalView view, SharedPreferences prefs) {
         String bgColor = prefs.getString("bg_color", "#000000");
         try {
-            terminalView.setTerminalBackgroundColor(Color.parseColor(bgColor));
+            view.setTerminalBackgroundColor(Color.parseColor(bgColor));
         } catch (IllegalArgumentException e) {
-            terminalView.setTerminalBackgroundColor(Color.BLACK);
+            view.setTerminalBackgroundColor(Color.BLACK);
         }
 
-        // Foreground color
         String fgColor = prefs.getString("fg_color", "#00FF00");
         try {
-            terminalView.setTerminalForegroundColor(Color.parseColor(fgColor));
+            view.setTerminalForegroundColor(Color.parseColor(fgColor));
         } catch (IllegalArgumentException e) {
-            terminalView.setTerminalForegroundColor(Color.GREEN);
+            view.setTerminalForegroundColor(Color.GREEN);
         }
 
-        // Font size
-        int fontSize = Integer.parseInt(prefs.getString("font_size", "14"));
-        terminalView.setTerminalFontSize(fontSize);
+        view.setTerminalFontSize(parseIntPreference("font_size", 14));
 
-        // Font family
         String fontFamily = prefs.getString("font_family", "monospace");
-        terminalView.setTerminalFont(fontFamily);
+        view.setTerminalFont(fontFamily);
+        view.setCtrlState(ctrlPressed);
+        view.setShiftState(shiftPressed);
+        view.setCapsLockState(capsLockOn);
     }
 
     @Override
@@ -260,7 +510,8 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (terminalView.handleKeyEvent(keyCode, event)) {
+        TerminalSession session = getActiveSession();
+        if (session != null && session.view.handleKeyEvent(keyCode, event)) {
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -270,6 +521,10 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
     protected void onResume() {
         super.onResume();
         applyPreferences(PreferenceManager.getDefaultSharedPreferences(this));
+        TerminalSession session = getActiveSession();
+        if (session != null) {
+            session.view.requestFocus();
+        }
     }
 
     @Override
@@ -277,8 +532,16 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         super.onDestroy();
         PreferenceManager.getDefaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(this);
-        if (terminalEmulator != null) {
-            terminalEmulator.stop();
+        for (int i = 0; i < sessions.size(); i++) {
+            sessions.get(i).emulator.stop();
+        }
+    }
+
+    private int parseIntPreference(String key, int defaultValue) {
+        try {
+            return Integer.parseInt(prefs.getString(key, String.valueOf(defaultValue)));
+        } catch (NumberFormatException e) {
+            return defaultValue;
         }
     }
 

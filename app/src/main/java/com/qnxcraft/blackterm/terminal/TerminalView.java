@@ -23,6 +23,10 @@ import android.view.inputmethod.InputMethodManager;
  */
 public class TerminalView extends View implements TerminalEmulator.TerminalListener {
 
+    public interface OnPasteRequestedListener {
+        void onPasteRequested();
+    }
+
     private TerminalEmulator emulator;
     private Paint textPaint;
     private Paint cursorPaint;
@@ -37,6 +41,8 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
     private boolean shiftState = false;
     private boolean capsLockState = false;
+    private boolean ctrlState = false;
+    private OnPasteRequestedListener pasteRequestedListener;
 
     private GestureDetector gestureDetector;
     private Handler blinkHandler = new Handler();
@@ -179,6 +185,8 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
         if (keyCode == KeyEvent.KEYCODE_ENTER ||
                 keyCode == KeyEvent.KEYCODE_DEL ||
                 keyCode == KeyEvent.KEYCODE_TAB ||
+                keyCode == KeyEvent.KEYCODE_CTRL_LEFT ||
+                keyCode == KeyEvent.KEYCODE_CTRL_RIGHT ||
                 keyCode == KeyEvent.KEYCODE_DPAD_UP ||
                 keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                 keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
@@ -196,11 +204,21 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
                 String t = text.toString();
+                if (ctrlState && t.length() == 1) {
+                    char ctrlChar = t.charAt(0);
+                    if (ctrlChar == 'v' || ctrlChar == 'V') {
+                        if (pasteRequestedListener != null) {
+                            pasteRequestedListener.onPasteRequested();
+                        }
+                        return true;
+                    }
+                    if (Character.isLetter(ctrlChar)) {
+                        emulator.sendControlKey(ctrlChar);
+                        return true;
+                    }
+                }
                 if (capsLockState || shiftState) {
                     t = t.toUpperCase();
-                    if (shiftState) {
-                        shiftState = false;
-                    }
                 }
                 emulator.sendText(t);
                 return true;
@@ -234,6 +252,29 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
             return false;
         }
 
+        if (keyCode == KeyEvent.KEYCODE_CTRL_LEFT || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT) {
+            return true;
+        }
+
+        boolean ctrlActive = ctrlState || event.isCtrlPressed();
+        if (ctrlActive && event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_V) {
+                if (pasteRequestedListener != null) {
+                    pasteRequestedListener.onPasteRequested();
+                }
+                return true;
+            }
+            if (keyCode >= KeyEvent.KEYCODE_A && keyCode <= KeyEvent.KEYCODE_Z) {
+                char ctrlChar = (char) ('A' + (keyCode - KeyEvent.KEYCODE_A));
+                emulator.sendControlKey(ctrlChar);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_SPACE) {
+                emulator.sendText(String.valueOf((char) 0));
+                return true;
+            }
+        }
+
         switch (keyCode) {
             case KeyEvent.KEYCODE_ENTER:
                 emulator.sendKeyCode(KeyEvent.KEYCODE_ENTER);
@@ -262,9 +303,6 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
                 if (unicodeChar != 0) {
                     String ch = String.valueOf((char) unicodeChar);
                     emulator.sendText(ch);
-                    if (shiftState) {
-                        shiftState = false;
-                    }
                     return true;
                 }
         }
@@ -277,6 +315,14 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
     public void setCapsLockState(boolean capsLock) {
         this.capsLockState = capsLock;
+    }
+
+    public void setCtrlState(boolean ctrl) {
+        this.ctrlState = ctrl;
+    }
+
+    public void setOnPasteRequestedListener(OnPasteRequestedListener listener) {
+        this.pasteRequestedListener = listener;
     }
 
     public void setTerminalBackgroundColor(int color) {

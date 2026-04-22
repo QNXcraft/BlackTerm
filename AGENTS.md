@@ -132,9 +132,9 @@ BlackTerm/
 
 ### Manual Testing Checklist
 - [ ] Shell prompt appears on startup
-- [ ] Terminal accepts keyboard input (physical or soft keyboard)
-- [ ] Backspace key works without showing rectangle glyphs
-- [ ] TAB, ESC, SHIFT, CAPS LOCK buttons in bottom bar are functional
+- [x] Terminal accepts keyboard input (physical or soft keyboard)
+- [x] Backspace key works without showing rectangle glyphs
+- [x] TAB, ESC, SHIFT, CAPS LOCK buttons in bottom bar are functional
 - [ ] Burger menu (≡) opens and shows options
 - [ ] Settings activity loads and displays configuration options
 - [ ] SSH server starts when enabled in settings

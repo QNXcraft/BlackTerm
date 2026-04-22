@@ -106,6 +106,14 @@
     <!-- Advanced -->
     <PreferenceCategory android:title="@string/pref_category_advanced">
 
+        <ListPreference
+            android:key="shell_command"
+            android:title="@string/pref_shell_command"
+            android:summary="@string/pref_shell_command_summary"
+            android:entries="@array/shell_entries"
+            android:entryValues="@array/shell_values"
+            android:defaultValue="auto" />
+
         <EditTextPreference
             android:key="terminal_columns"
             android:title="@string/pref_terminal_columns"

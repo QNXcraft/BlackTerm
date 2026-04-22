@@ -36,6 +36,8 @@
     <string name="pref_terminal_columns">Terminal Columns</string>
     <string name="pref_terminal_rows">Terminal Rows</string>
     <string name="pref_scrollback_lines">Scrollback Lines</string>
+    <string name="pref_shell_command">Preferred Shell</string>
+    <string name="pref_shell_command_summary">Select which shell to launch for new tabs</string>
     <string name="pref_keep_screen_on">Keep Screen On</string>
     <string name="pref_keep_screen_on_summary">Prevent screen from turning off</string>
     <string name="pref_vibrate_on_key">Vibrate on Key Press</string>
@@ -106,5 +108,18 @@
         <item>#00FFFF</item>
         <item>#e94560</item>
         <item>#CCCCCC</item>
+    </string-array>
+
+    <string-array name="shell_entries">
+        <item>Auto (best available)</item>
+        <item>sh</item>
+        <item>bash</item>
+        <item>zsh</item>
+    </string-array>
+    <string-array name="shell_values">
+        <item>auto</item>
+        <item>sh</item>
+        <item>bash</item>
+        <item>zsh</item>
     </string-array>
 </resources>

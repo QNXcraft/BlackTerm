@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -37,6 +39,7 @@ public class TerminalEmulator {
     private Thread readerThread;
     private volatile boolean running = false;
     private boolean localEchoEnabled = true;
+    private String preferredShell = "auto";
 
     private TerminalListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -77,21 +80,20 @@ public class TerminalEmulator {
         this.listener = listener;
     }
 
+    public void setPreferredShell(String preferredShell) {
+        if (preferredShell == null || preferredShell.trim().length() == 0) {
+            this.preferredShell = "auto";
+        } else {
+            this.preferredShell = preferredShell.trim();
+        }
+    }
+
     public void start() {
-        String[][] candidates = new String[][] {
-                {"/system/bin/sh", "-i"},
-                {"/system/xbin/sh", "-i"},
-                {"/bin/sh", "-i"},
-                {"sh", "-i"},
-                {"/system/bin/sh"},
-                {"/system/xbin/sh"},
-                {"/bin/sh"},
-                {"sh"}
-        };
+        List<String[]> candidates = buildShellCandidates();
 
         StringBuilder failures = new StringBuilder();
-        for (int i = 0; i < candidates.length; i++) {
-            String[] cmd = candidates[i];
+        for (int i = 0; i < candidates.size(); i++) {
+            String[] cmd = candidates.get(i);
             try {
                 ProcessBuilder pb = new ProcessBuilder(cmd);
                 Map<String, String> env = pb.environment();
@@ -264,6 +266,15 @@ public class TerminalEmulator {
         }
     }
 
+    public void sendControlKey(char keyChar) {
+        char upper = Character.toUpperCase(keyChar);
+        if (upper >= 'A' && upper <= 'Z') {
+            sendText(String.valueOf((char) (upper - 'A' + 1)));
+        } else if (upper == ' ') {
+            sendText(String.valueOf((char) 0));
+        }
+    }
+
     private void readProcessOutput() {
         byte[] buffer = new byte[4096];
         try {
@@ -300,6 +311,7 @@ public class TerminalEmulator {
                 } else if (c == '\r') {
                     cursorCol = 0;
                 } else if (c == '\n') {
+                    cursorCol = 0;
                     newLine();
                 } else if (c == '\b') {
                     if (cursorCol > 0) cursorCol--;
@@ -719,7 +731,7 @@ public class TerminalEmulator {
                     } else if (c == '\r') {
                         processChar('\r');
                     } else if (c == '\t') {
-                        processChar('\t');
+                        // Let the shell completion result render instead of expanding a local tab.
                     } else if (c == '\b' || c == 0x7f) {
                         applyLocalBackspace();
                     } else if (c >= ' ' && c != 0x7f) {
@@ -764,6 +776,48 @@ public class TerminalEmulator {
             sb.append(cmd[i]);
         }
         return sb.toString();
+    }
+
+    private List<String[]> buildShellCandidates() {
+        List<String[]> candidates = new ArrayList<String[]>();
+        if (!"auto".equals(preferredShell)) {
+            addShellVariants(candidates, preferredShell);
+        }
+
+        addShellVariants(candidates, "/system/bin/bash");
+        addShellVariants(candidates, "/system/xbin/bash");
+        addShellVariants(candidates, "/bin/bash");
+        addShellVariants(candidates, "bash");
+        addShellVariants(candidates, "/system/bin/zsh");
+        addShellVariants(candidates, "/system/xbin/zsh");
+        addShellVariants(candidates, "/bin/zsh");
+        addShellVariants(candidates, "zsh");
+        addShellVariants(candidates, "/system/bin/sh");
+        addShellVariants(candidates, "/system/xbin/sh");
+        addShellVariants(candidates, "/bin/sh");
+        addShellVariants(candidates, "sh");
+
+        return candidates;
+    }
+
+    private void addShellVariants(List<String[]> candidates, String shell) {
+        if (shell == null || shell.trim().length() == 0) {
+            return;
+        }
+
+        String value = shell.trim();
+        addCandidateIfMissing(candidates, new String[] {value, "-i"});
+        addCandidateIfMissing(candidates, new String[] {value});
+    }
+
+    private void addCandidateIfMissing(List<String[]> candidates, String[] candidate) {
+        String joined = joinCommand(candidate);
+        for (int i = 0; i < candidates.size(); i++) {
+            if (joinCommand(candidates.get(i)).equals(joined)) {
+                return;
+            }
+        }
+        candidates.add(candidate);
     }
 
     // Getters
