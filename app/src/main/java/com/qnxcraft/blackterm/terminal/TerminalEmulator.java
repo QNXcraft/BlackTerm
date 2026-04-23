@@ -56,6 +56,7 @@ public class TerminalEmulator {
     private char[][] scrollbackBuffer;
     private int scrollbackSize = 1000;
     private int scrollbackCount = 0;
+    private int scrollbackStart = 0;
 
     // Attributes
     private int currentFgColor = 0xFF00FF00; // Green
@@ -73,6 +74,7 @@ public class TerminalEmulator {
         this.screen = new char[rows][columns];
         this.fgColors = new int[rows * columns];
         this.bgColors = new int[rows * columns];
+        this.scrollbackBuffer = new char[scrollbackSize][];
         clearScreen();
     }
 
@@ -172,6 +174,7 @@ public class TerminalEmulator {
     public void reset() {
         stop();
         clearScreen();
+        clearScrollback();
         cursorRow = 0;
         cursorCol = 0;
         escapeState = STATE_NORMAL;
@@ -209,6 +212,7 @@ public class TerminalEmulator {
         screen = newScreen;
         fgColors = newFgColors;
         bgColors = newBgColors;
+        clearScrollback();
 
         if (cursorRow >= rows) cursorRow = rows - 1;
         if (cursorCol >= columns) cursorCol = columns - 1;
@@ -579,6 +583,7 @@ public class TerminalEmulator {
     }
 
     private void scrollUp() {
+        pushScrollbackLine(screen[0]);
         System.arraycopy(screen, 1, screen, 0, rows - 1);
         screen[rows - 1] = new char[columns];
         java.util.Arrays.fill(screen[rows - 1], ' ');
@@ -608,6 +613,54 @@ public class TerminalEmulator {
         }
         java.util.Arrays.fill(fgColors, currentFgColor);
         java.util.Arrays.fill(bgColors, currentBgColor);
+    }
+
+    private void clearScrollback() {
+        scrollbackBuffer = new char[scrollbackSize][];
+        scrollbackCount = 0;
+        scrollbackStart = 0;
+    }
+
+    private void pushScrollbackLine(char[] line) {
+        if (line == null) {
+            return;
+        }
+
+        char[] copy = new char[line.length];
+        System.arraycopy(line, 0, copy, 0, line.length);
+
+        if (scrollbackCount < scrollbackSize) {
+            int index = (scrollbackStart + scrollbackCount) % scrollbackSize;
+            scrollbackBuffer[index] = copy;
+            scrollbackCount++;
+        } else {
+            scrollbackBuffer[scrollbackStart] = copy;
+            scrollbackStart = (scrollbackStart + 1) % scrollbackSize;
+        }
+    }
+
+    public int getScrollbackCount() {
+        return scrollbackCount;
+    }
+
+    public char[] getTranscriptLine(int absoluteRow) {
+        if (absoluteRow < 0) {
+            return null;
+        }
+        if (absoluteRow < scrollbackCount) {
+            int index = (scrollbackStart + absoluteRow) % scrollbackSize;
+            return scrollbackBuffer[index];
+        }
+
+        int screenRow = absoluteRow - scrollbackCount;
+        if (screenRow >= 0 && screenRow < rows) {
+            return screen[screenRow];
+        }
+        return null;
+    }
+
+    public int getTranscriptLineCount() {
+        return scrollbackCount + rows;
     }
 
     private void eraseDisplay(int mode) {

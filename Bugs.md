@@ -13,3 +13,7 @@
 6. Add Bash support, so user can use Bash shell instead of the default shell. This would provide users with a more familiar and powerful command-line interface, allowing them to use advanced features and scripting capabilities of Bash. Implementing Bash support would enhance the functionality of the terminal and make it more appealing to users who prefer using Bash as their shell. [x] IMPLEMENTED - Added bash fallback in buildShellCandidates method
 
 7. Add shell option in settings, so user can choose which shell to use (e.g., sh, bash, zsh, etc.). This would allow users to customize their terminal experience and use the shell that they are most comfortable with. Providing a shell option in the settings would enhance the flexibility of the terminal and cater to a wider range of users with different preferences for their command-line environment. [x] IMPLEMENTED - Added shell_command preference in settings with auto/sh/bash/zsh options
+
+8. Could not scroll the terminal. [x] FIXED - Added real scrollback storage in TerminalEmulator and gesture-based viewport scrolling in TerminalView
+
+9. Could not select text in terminal. [x] FIXED - Added long-press selection, drag-to-expand selection, highlight rendering, and clipboard copy in TerminalView
