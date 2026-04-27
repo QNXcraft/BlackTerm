@@ -1,5 +1,7 @@
 package com.qnxcraft.blackterm.terminal;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -23,10 +25,15 @@ import android.view.inputmethod.InputMethodManager;
  */
 public class TerminalView extends View implements TerminalEmulator.TerminalListener {
 
+    public interface OnPasteRequestedListener {
+        void onPasteRequested();
+    }
+
     private TerminalEmulator emulator;
     private Paint textPaint;
     private Paint cursorPaint;
     private Paint bgPaint;
+    private Paint selectionPaint;
 
     private float charWidth;
     private float charHeight;
@@ -37,11 +44,19 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
     private boolean shiftState = false;
     private boolean capsLockState = false;
+    private boolean ctrlState = false;
+    private OnPasteRequestedListener pasteRequestedListener;
 
     private GestureDetector gestureDetector;
     private Handler blinkHandler = new Handler();
     private boolean cursorBlinkVisible = true;
     private static final long BLINK_INTERVAL = 500;
+    private int viewportTopRow = 0;
+    private boolean selectionActive = false;
+    private int selectionStartRow = -1;
+    private int selectionStartCol = -1;
+    private int selectionEndRow = -1;
+    private int selectionEndCol = -1;
 
     private Runnable blinkRunnable = new Runnable() {
         @Override
@@ -72,11 +87,18 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
         bgPaint = new Paint();
         bgPaint.setColor(termBgColor);
 
+        selectionPaint = new Paint();
+        selectionPaint.setColor(Color.argb(160, 80, 120, 255));
+
         updateCharMetrics();
 
         gestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onSingleTapUp(MotionEvent e) {
+                if (selectionActive) {
+                    clearSelection();
+                    return true;
+                }
                 requestFocus();
                 showKeyboard();
                 return true;
@@ -84,7 +106,31 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                // Double tap to paste
+                if (selectionActive) {
+                    copySelectionToClipboard();
+                } else if (pasteRequestedListener != null) {
+                    pasteRequestedListener.onPasteRequested();
+                }
+                return true;
+            }
+
+            @Override
+            public void onLongPress(MotionEvent e) {
+                beginSelection(e.getX(), e.getY());
+            }
+
+            @Override
+            public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+                if (selectionActive) {
+                    updateSelection(e2.getX(), e2.getY());
+                    return true;
+                }
+
+                int deltaRows = Math.round(distanceY / charHeight);
+                if (deltaRows != 0) {
+                    scrollViewportBy(deltaRows);
+                    return true;
+                }
                 return true;
             }
         });
@@ -119,37 +165,47 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
         // Draw background
         canvas.drawColor(termBgColor);
 
-        char[][] screen = emulator.getScreen();
         int[] fgColors = emulator.getFgColors();
         int[] bgColors = emulator.getBgColors();
         int rows = emulator.getRows();
         int cols = emulator.getColumns();
+        int scrollbackCount = emulator.getScrollbackCount();
 
         for (int row = 0; row < rows; row++) {
             float y = row * charHeight;
+            int absoluteRow = viewportTopRow + row;
+            char[] line = emulator.getTranscriptLine(absoluteRow);
+            boolean usingScreenRow = absoluteRow >= scrollbackCount;
+            int screenRow = absoluteRow - scrollbackCount;
 
             for (int col = 0; col < cols; col++) {
                 float x = col * charWidth;
-                int idx = row * cols + col;
+                int idx = usingScreenRow && screenRow >= 0 && screenRow < rows
+                        ? screenRow * cols + col
+                        : -1;
 
                 // Draw cell background if different from terminal bg
-                int cellBg = bgColors[idx];
+                int cellBg = idx >= 0 ? bgColors[idx] : termBgColor;
                 if (cellBg != termBgColor) {
                     bgPaint.setColor(cellBg);
                     canvas.drawRect(x, y, x + charWidth, y + charHeight, bgPaint);
                 }
 
+                if (isCellSelected(absoluteRow, col)) {
+                    canvas.drawRect(x, y, x + charWidth, y + charHeight, selectionPaint);
+                }
+
                 // Draw character
-                char c = screen[row][col];
+                char c = (line != null && col < line.length) ? line[col] : ' ';
                 if (c != ' ' && c != 0) {
-                    textPaint.setColor(fgColors[idx]);
+                    textPaint.setColor(idx >= 0 ? fgColors[idx] : termFgColor);
                     canvas.drawText(String.valueOf(c), x, y + charHeight - charDescent, textPaint);
                 }
             }
         }
 
         // Draw cursor
-        if (emulator.isCursorVisible() && cursorBlinkVisible) {
+        if (emulator.isCursorVisible() && cursorBlinkVisible && isFollowingBottom()) {
             int curRow = emulator.getCursorRow();
             int curCol = emulator.getCursorCol();
             float cx = curCol * charWidth;
@@ -163,7 +219,43 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         gestureDetector.onTouchEvent(event);
+
+        if (selectionActive) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_MOVE:
+                    updateSelection(event.getX(), event.getY());
+                    break;
+                case MotionEvent.ACTION_UP:
+                    copySelectionToClipboard();
+                    break;
+            }
+        }
+
         return true;
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (handleKeyEvent(keyCode, event)) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_ENTER ||
+                keyCode == KeyEvent.KEYCODE_DEL ||
+                keyCode == KeyEvent.KEYCODE_TAB ||
+                keyCode == KeyEvent.KEYCODE_CTRL_LEFT ||
+                keyCode == KeyEvent.KEYCODE_CTRL_RIGHT ||
+                keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override
@@ -174,11 +266,21 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
                 String t = text.toString();
+                if (ctrlState && t.length() == 1) {
+                    char ctrlChar = t.charAt(0);
+                    if (ctrlChar == 'v' || ctrlChar == 'V') {
+                        if (pasteRequestedListener != null) {
+                            pasteRequestedListener.onPasteRequested();
+                        }
+                        return true;
+                    }
+                    if (Character.isLetter(ctrlChar)) {
+                        emulator.sendControlKey(ctrlChar);
+                        return true;
+                    }
+                }
                 if (capsLockState || shiftState) {
                     t = t.toUpperCase();
-                    if (shiftState) {
-                        shiftState = false;
-                    }
                 }
                 emulator.sendText(t);
                 return true;
@@ -212,6 +314,29 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
             return false;
         }
 
+        if (keyCode == KeyEvent.KEYCODE_CTRL_LEFT || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT) {
+            return true;
+        }
+
+        boolean ctrlActive = ctrlState || event.isCtrlPressed();
+        if (ctrlActive && event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_V) {
+                if (pasteRequestedListener != null) {
+                    pasteRequestedListener.onPasteRequested();
+                }
+                return true;
+            }
+            if (keyCode >= KeyEvent.KEYCODE_A && keyCode <= KeyEvent.KEYCODE_Z) {
+                char ctrlChar = (char) ('A' + (keyCode - KeyEvent.KEYCODE_A));
+                emulator.sendControlKey(ctrlChar);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_SPACE) {
+                emulator.sendText(String.valueOf((char) 0));
+                return true;
+            }
+        }
+
         switch (keyCode) {
             case KeyEvent.KEYCODE_ENTER:
                 emulator.sendKeyCode(KeyEvent.KEYCODE_ENTER);
@@ -240,9 +365,6 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
                 if (unicodeChar != 0) {
                     String ch = String.valueOf((char) unicodeChar);
                     emulator.sendText(ch);
-                    if (shiftState) {
-                        shiftState = false;
-                    }
                     return true;
                 }
         }
@@ -255,6 +377,14 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
     public void setCapsLockState(boolean capsLock) {
         this.capsLockState = capsLock;
+    }
+
+    public void setCtrlState(boolean ctrl) {
+        this.ctrlState = ctrl;
+    }
+
+    public void setOnPasteRequestedListener(OnPasteRequestedListener listener) {
+        this.pasteRequestedListener = listener;
     }
 
     public void setTerminalBackgroundColor(int color) {
@@ -303,6 +433,9 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
     @Override
     public void onScreenUpdate() {
+        if (isFollowingBottom()) {
+            scrollToBottom();
+        }
         invalidate();
     }
 
@@ -322,5 +455,148 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         blinkHandler.removeCallbacks(blinkRunnable);
+    }
+
+    private void scrollViewportBy(int deltaRows) {
+        int maxTop = Math.max(0, emulator.getTranscriptLineCount() - emulator.getRows());
+        viewportTopRow = Math.max(0, Math.min(maxTop, viewportTopRow + deltaRows));
+        invalidate();
+    }
+
+    private void scrollToBottom() {
+        viewportTopRow = Math.max(0, emulator.getTranscriptLineCount() - emulator.getRows());
+    }
+
+    private boolean isFollowingBottom() {
+        return viewportTopRow >= Math.max(0, emulator.getTranscriptLineCount() - emulator.getRows());
+    }
+
+    private void beginSelection(float touchX, float touchY) {
+        int row = clampAbsoluteRow(viewportTopRow + (int) (touchY / charHeight));
+        int col = clampColumn((int) (touchX / charWidth));
+        selectionActive = true;
+        selectionStartRow = row;
+        selectionStartCol = col;
+        selectionEndRow = row;
+        selectionEndCol = col;
+        invalidate();
+    }
+
+    private void updateSelection(float touchX, float touchY) {
+        if (!selectionActive) {
+            return;
+        }
+        selectionEndRow = clampAbsoluteRow(viewportTopRow + (int) (touchY / charHeight));
+        selectionEndCol = clampColumn((int) (touchX / charWidth));
+        invalidate();
+    }
+
+    private void clearSelection() {
+        selectionActive = false;
+        selectionStartRow = -1;
+        selectionStartCol = -1;
+        selectionEndRow = -1;
+        selectionEndCol = -1;
+        invalidate();
+    }
+
+    private boolean isCellSelected(int row, int col) {
+        if (!selectionActive) {
+            return false;
+        }
+
+        int startRow = selectionStartRow;
+        int startCol = selectionStartCol;
+        int endRow = selectionEndRow;
+        int endCol = selectionEndCol;
+
+        if (startRow > endRow || (startRow == endRow && startCol > endCol)) {
+            startRow = selectionEndRow;
+            startCol = selectionEndCol;
+            endRow = selectionStartRow;
+            endCol = selectionStartCol;
+        }
+
+        if (row < startRow || row > endRow) {
+            return false;
+        }
+        if (startRow == endRow) {
+            return col >= startCol && col <= endCol;
+        }
+        if (row == startRow) {
+            return col >= startCol;
+        }
+        if (row == endRow) {
+            return col <= endCol;
+        }
+        return true;
+    }
+
+    private void copySelectionToClipboard() {
+        if (!selectionActive) {
+            return;
+        }
+
+        String selectedText = buildSelectedText();
+        if (selectedText.length() == 0) {
+            return;
+        }
+
+        ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("terminal-selection", selectedText));
+        }
+    }
+
+    private String buildSelectedText() {
+        if (!selectionActive) {
+            return "";
+        }
+
+        int startRow = selectionStartRow;
+        int startCol = selectionStartCol;
+        int endRow = selectionEndRow;
+        int endCol = selectionEndCol;
+
+        if (startRow > endRow || (startRow == endRow && startCol > endCol)) {
+            startRow = selectionEndRow;
+            startCol = selectionEndCol;
+            endRow = selectionStartRow;
+            endCol = selectionStartCol;
+        }
+
+        StringBuilder builder = new StringBuilder();
+        for (int row = startRow; row <= endRow; row++) {
+            char[] line = emulator.getTranscriptLine(row);
+            if (line == null) {
+                continue;
+            }
+
+            int fromCol = (row == startRow) ? startCol : 0;
+            int toCol = (row == endRow) ? endCol : emulator.getColumns() - 1;
+            fromCol = Math.max(0, Math.min(fromCol, line.length));
+            toCol = Math.max(0, Math.min(toCol, line.length - 1));
+            if (toCol >= fromCol) {
+                int actualEnd = toCol;
+                while (actualEnd >= fromCol && line[actualEnd] == ' ') {
+                    actualEnd--;
+                }
+                if (actualEnd >= fromCol) {
+                    builder.append(line, fromCol, actualEnd - fromCol + 1);
+                }
+            }
+            if (row < endRow) {
+                builder.append('\n');
+            }
+        }
+        return builder.toString();
+    }
+
+    private int clampAbsoluteRow(int row) {
+        return Math.max(0, Math.min(row, emulator.getTranscriptLineCount() - 1));
+    }
+
+    private int clampColumn(int col) {
+        return Math.max(0, Math.min(col, emulator.getColumns() - 1));
     }
 }

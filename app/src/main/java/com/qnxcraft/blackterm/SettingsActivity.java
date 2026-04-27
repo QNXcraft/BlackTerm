@@ -71,6 +71,7 @@ public class SettingsActivity extends PreferenceActivity {
         bindSummaryToValue(findPreference("terminal_columns"));
         bindSummaryToValue(findPreference("terminal_rows"));
         bindSummaryToValue(findPreference("scrollback_lines"));
+        bindSummaryToValue(findPreference("shell_command"));
     }
 
     private void bindSummaryToValue(Preference pref) {

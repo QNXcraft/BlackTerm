@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Core terminal emulator handling PTY process and VT100/ANSI escape sequences.
@@ -35,6 +38,8 @@ public class TerminalEmulator {
     private InputStream processOutput;
     private Thread readerThread;
     private volatile boolean running = false;
+    private boolean localEchoEnabled = true;
+    private String preferredShell = "auto";
 
     private TerminalListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -51,6 +56,7 @@ public class TerminalEmulator {
     private char[][] scrollbackBuffer;
     private int scrollbackSize = 1000;
     private int scrollbackCount = 0;
+    private int scrollbackStart = 0;
 
     // Attributes
     private int currentFgColor = 0xFF00FF00; // Green
@@ -68,6 +74,7 @@ public class TerminalEmulator {
         this.screen = new char[rows][columns];
         this.fgColors = new int[rows * columns];
         this.bgColors = new int[rows * columns];
+        this.scrollbackBuffer = new char[scrollbackSize][];
         clearScreen();
     }
 
@@ -75,39 +82,81 @@ public class TerminalEmulator {
         this.listener = listener;
     }
 
-    public void start() {
-        try {
-            String shell = "/system/bin/sh";
-            java.io.File shellFile = new java.io.File(shell);
-            if (!shellFile.exists()) {
-                shell = "/bin/sh";
-            }
-
-            ProcessBuilder pb = new ProcessBuilder(shell);
-            pb.environment().put("TERM", "xterm");
-            pb.environment().put("HOME", "/data/data/com.qnxcraft.blackterm/files");
-            pb.environment().put("PATH", "/system/bin:/system/xbin:/sbin:/vendor/bin");
-            pb.environment().put("COLUMNS", String.valueOf(columns));
-            pb.environment().put("LINES", String.valueOf(rows));
-            pb.redirectErrorStream(true);
-
-            process = pb.start();
-            processInput = process.getOutputStream();
-            processOutput = process.getInputStream();
-            running = true;
-
-            readerThread = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    readProcessOutput();
-                }
-            }, "TerminalReader");
-            readerThread.setDaemon(true);
-            readerThread.start();
-
-        } catch (IOException e) {
-            appendText("Failed to start shell: " + e.getMessage() + "\r\n");
+    public void setPreferredShell(String preferredShell) {
+        if (preferredShell == null || preferredShell.trim().length() == 0) {
+            this.preferredShell = "auto";
+        } else {
+            this.preferredShell = preferredShell.trim();
         }
+    }
+
+    public void start() {
+        List<String[]> candidates = buildShellCandidates();
+
+        StringBuilder failures = new StringBuilder();
+        for (int i = 0; i < candidates.size(); i++) {
+            String[] cmd = candidates.get(i);
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                Map<String, String> env = pb.environment();
+                env.put("TERM", "xterm");
+                env.put("PATH", "/system/bin:/system/xbin:/sbin:/vendor/bin:/bin:/usr/bin");
+                env.put("COLUMNS", String.valueOf(columns));
+                env.put("LINES", String.valueOf(rows));
+                env.put("PS1", "blackterm$ ");
+                pb.directory(new java.io.File("/"));
+                pb.redirectErrorStream(true);
+
+                process = pb.start();
+                processInput = process.getOutputStream();
+                processOutput = process.getInputStream();
+                running = true;
+
+                readerThread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        readProcessOutput();
+                    }
+                }, "TerminalReader");
+                readerThread.setDaemon(true);
+                readerThread.start();
+
+                Thread watcher = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            int exitCode = process.waitFor();
+                            if (running) {
+                                appendText("\r\n[Shell exited: " + exitCode + "]\r\n");
+                            }
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }, "TerminalProcessWatcher");
+                watcher.setDaemon(true);
+                watcher.start();
+
+                appendText("[Started shell: " + joinCommand(cmd) + "]\r\n");
+                return;
+            } catch (IOException e) {
+                failures.append(joinCommand(cmd))
+                        .append(" -> ")
+                        .append(e.getClass().getSimpleName())
+                        .append(": ")
+                        .append(e.getMessage())
+                        .append("\n");
+            } catch (SecurityException e) {
+                failures.append(joinCommand(cmd))
+                        .append(" -> ")
+                        .append(e.getClass().getSimpleName())
+                        .append(": ")
+                        .append(e.getMessage())
+                        .append("\n");
+            }
+        }
+
+        appendText("Failed to start shell. Tried commands:\r\n" + failures.toString() + "\r\n");
     }
 
     public void stop() {
@@ -125,6 +174,7 @@ public class TerminalEmulator {
     public void reset() {
         stop();
         clearScreen();
+        clearScrollback();
         cursorRow = 0;
         cursorCol = 0;
         escapeState = STATE_NORMAL;
@@ -162,6 +212,7 @@ public class TerminalEmulator {
         screen = newScreen;
         fgColors = newFgColors;
         bgColors = newBgColors;
+        clearScrollback();
 
         if (cursorRow >= rows) cursorRow = rows - 1;
         if (cursorCol >= columns) cursorCol = columns - 1;
@@ -170,13 +221,23 @@ public class TerminalEmulator {
     }
 
     public void sendText(String text) {
+        if (text == null || text.length() == 0) {
+            return;
+        }
+
+        if (localEchoEnabled) {
+            appendLocalEcho(text);
+        }
+
         if (processInput != null && running) {
             try {
-                processInput.write(text.getBytes());
+                processInput.write(text.getBytes("UTF-8"));
                 processInput.flush();
             } catch (IOException e) {
-                // Connection lost
+                appendText("\r\n[Input write failed: " + e.getMessage() + "]\r\n");
             }
+        } else {
+            appendText("\r\n[Shell is not running]\r\n");
         }
     }
 
@@ -189,7 +250,7 @@ public class TerminalEmulator {
                 sendText("\033");
                 break;
             case android.view.KeyEvent.KEYCODE_ENTER:
-                sendText("\r");
+                sendText("\n");
                 break;
             case android.view.KeyEvent.KEYCODE_DEL:
                 sendText("\177");
@@ -206,6 +267,15 @@ public class TerminalEmulator {
             case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
                 sendText("\033[D");
                 break;
+        }
+    }
+
+    public void sendControlKey(char keyChar) {
+        char upper = Character.toUpperCase(keyChar);
+        if (upper >= 'A' && upper <= 'Z') {
+            sendText(String.valueOf((char) (upper - 'A' + 1)));
+        } else if (upper == ' ') {
+            sendText(String.valueOf((char) 0));
         }
     }
 
@@ -245,6 +315,7 @@ public class TerminalEmulator {
                 } else if (c == '\r') {
                     cursorCol = 0;
                 } else if (c == '\n') {
+                    cursorCol = 0;
                     newLine();
                 } else if (c == '\b') {
                     if (cursorCol > 0) cursorCol--;
@@ -253,7 +324,7 @@ public class TerminalEmulator {
                     cursorCol = Math.min(nextTab, columns - 1);
                 } else if (c == '\007') {
                     // Bell - ignore
-                } else if (c >= ' ') {
+                } else if (c >= ' ' && c != 0x7f) {
                     putChar(c);
                 }
                 break;
@@ -512,6 +583,7 @@ public class TerminalEmulator {
     }
 
     private void scrollUp() {
+        pushScrollbackLine(screen[0]);
         System.arraycopy(screen, 1, screen, 0, rows - 1);
         screen[rows - 1] = new char[columns];
         java.util.Arrays.fill(screen[rows - 1], ' ');
@@ -541,6 +613,54 @@ public class TerminalEmulator {
         }
         java.util.Arrays.fill(fgColors, currentFgColor);
         java.util.Arrays.fill(bgColors, currentBgColor);
+    }
+
+    private void clearScrollback() {
+        scrollbackBuffer = new char[scrollbackSize][];
+        scrollbackCount = 0;
+        scrollbackStart = 0;
+    }
+
+    private void pushScrollbackLine(char[] line) {
+        if (line == null) {
+            return;
+        }
+
+        char[] copy = new char[line.length];
+        System.arraycopy(line, 0, copy, 0, line.length);
+
+        if (scrollbackCount < scrollbackSize) {
+            int index = (scrollbackStart + scrollbackCount) % scrollbackSize;
+            scrollbackBuffer[index] = copy;
+            scrollbackCount++;
+        } else {
+            scrollbackBuffer[scrollbackStart] = copy;
+            scrollbackStart = (scrollbackStart + 1) % scrollbackSize;
+        }
+    }
+
+    public int getScrollbackCount() {
+        return scrollbackCount;
+    }
+
+    public char[] getTranscriptLine(int absoluteRow) {
+        if (absoluteRow < 0) {
+            return null;
+        }
+        if (absoluteRow < scrollbackCount) {
+            int index = (scrollbackStart + absoluteRow) % scrollbackSize;
+            return scrollbackBuffer[index];
+        }
+
+        int screenRow = absoluteRow - scrollbackCount;
+        if (screenRow >= 0 && screenRow < rows) {
+            return screen[screenRow];
+        }
+        return null;
+    }
+
+    public int getTranscriptLineCount() {
+        return scrollbackCount + rows;
     }
 
     private void eraseDisplay(int mode) {
@@ -652,6 +772,40 @@ public class TerminalEmulator {
         });
     }
 
+    private void appendLocalEcho(String text) {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < text.length(); i++) {
+                    char c = text.charAt(i);
+                    if (c == '\n') {
+                        processChar('\r');
+                        processChar('\n');
+                    } else if (c == '\r') {
+                        processChar('\r');
+                    } else if (c == '\t') {
+                        // Let the shell completion result render instead of expanding a local tab.
+                    } else if (c == '\b' || c == 0x7f) {
+                        applyLocalBackspace();
+                    } else if (c >= ' ' && c != 0x7f) {
+                        processChar(c);
+                    }
+                }
+                notifyUpdate();
+            }
+        });
+    }
+
+    private void applyLocalBackspace() {
+        if (cursorCol > 0) {
+            cursorCol--;
+            screen[cursorRow][cursorCol] = ' ';
+            int idx = cursorRow * columns + cursorCol;
+            fgColors[idx] = reverseMode ? currentBgColor : currentFgColor;
+            bgColors[idx] = reverseMode ? currentFgColor : currentBgColor;
+        }
+    }
+
     private void notifyUpdate() {
         if (listener != null) {
             mainHandler.post(new Runnable() {
@@ -661,6 +815,62 @@ public class TerminalEmulator {
                 }
             });
         }
+    }
+
+    private String joinCommand(String[] cmd) {
+        if (cmd == null || cmd.length == 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cmd.length; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(cmd[i]);
+        }
+        return sb.toString();
+    }
+
+    private List<String[]> buildShellCandidates() {
+        List<String[]> candidates = new ArrayList<String[]>();
+        if (!"auto".equals(preferredShell)) {
+            addShellVariants(candidates, preferredShell);
+        }
+
+        addShellVariants(candidates, "/system/bin/bash");
+        addShellVariants(candidates, "/system/xbin/bash");
+        addShellVariants(candidates, "/bin/bash");
+        addShellVariants(candidates, "bash");
+        addShellVariants(candidates, "/system/bin/zsh");
+        addShellVariants(candidates, "/system/xbin/zsh");
+        addShellVariants(candidates, "/bin/zsh");
+        addShellVariants(candidates, "zsh");
+        addShellVariants(candidates, "/system/bin/sh");
+        addShellVariants(candidates, "/system/xbin/sh");
+        addShellVariants(candidates, "/bin/sh");
+        addShellVariants(candidates, "sh");
+
+        return candidates;
+    }
+
+    private void addShellVariants(List<String[]> candidates, String shell) {
+        if (shell == null || shell.trim().length() == 0) {
+            return;
+        }
+
+        String value = shell.trim();
+        addCandidateIfMissing(candidates, new String[] {value, "-i"});
+        addCandidateIfMissing(candidates, new String[] {value});
+    }
+
+    private void addCandidateIfMissing(List<String[]> candidates, String[] candidate) {
+        String joined = joinCommand(candidate);
+        for (int i = 0; i < candidates.size(); i++) {
+            if (joinCommand(candidates.get(i)).equals(joined)) {
+                return;
+            }
+        }
+        candidates.add(candidate);
     }
 
     // Getters
