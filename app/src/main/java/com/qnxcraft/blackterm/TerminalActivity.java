@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -22,6 +23,10 @@ import android.widget.LinearLayout;
 import android.widget.Toast;
 import android.widget.PopupMenu;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
 import com.qnxcraft.blackterm.terminal.TerminalEmulator;
 import com.qnxcraft.blackterm.terminal.TerminalView;
 
@@ -29,6 +34,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TerminalActivity extends Activity implements SharedPreferences.OnSharedPreferenceChangeListener {
+
+    private String extraBinPath = null;
 
     private static final int MENU_NEW_TAB = 1;
     private static final int MENU_CLOSE_TAB = 2;
@@ -91,8 +98,35 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
 
         setContentView(rootLayout);
 
+        setupBashWrapper();
         applyPreferences(prefs);
         createNewSession();
+    }
+
+    /**
+     * Creates a tiny bash wrapper script in the app's private bin directory so that
+     * typing `bash` in the terminal finds an executable instead of returning "not found".
+     * The wrapper simply exec's the system sh with interactive mode.
+     */
+    private void setupBashWrapper() {
+        File binDir = new File(getFilesDir(), "bin");
+        if (!binDir.exists() && !binDir.mkdirs()) {
+            return;
+        }
+        extraBinPath = binDir.getAbsolutePath();
+
+        String[] wrappers = {"bash", "zsh"};
+        for (String name : wrappers) {
+            File wrapper = new File(binDir, name);
+            if (!wrapper.exists()) {
+                try {
+                    FileOutputStream fos = new FileOutputStream(wrapper);
+                    fos.write(("#!/system/bin/sh\nexec /system/bin/sh -i \"$@\"\n").getBytes("UTF-8"));
+                    fos.close();
+                    wrapper.setExecutable(true, false);
+                } catch (IOException ignored) {}
+            }
+        }
     }
 
     private View createTabBar() {
@@ -120,6 +154,7 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         addTabButton.setAllCaps(false);
         addTabButton.setBackgroundColor(Color.parseColor("#0f3460"));
         addTabButton.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(44), dpToPx(36)));
+        addTabButton.setFocusable(false);
         addTabButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -149,6 +184,7 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         burgerButton.setBackgroundColor(Color.parseColor("#16213e"));
         burgerButton.setLayoutParams(btnParams);
         burgerButton.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
+        burgerButton.setFocusable(false);
         burgerButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -163,7 +199,7 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
             public void onClick(View v) {
                 TerminalSession session = getActiveSession();
                 if (session != null) {
-                    session.emulator.sendKeyCode(KeyEvent.KEYCODE_TAB);
+                    session.emulator.performTabCompletion();
                 }
             }
         });
@@ -226,6 +262,8 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         btn.setLayoutParams(params);
         btn.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
         btn.setAllCaps(false);
+        // Prevent button bar from stealing focus from the terminal view.
+        btn.setFocusable(false);
         return btn;
     }
 
@@ -242,6 +280,8 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         button.setBackgroundColor(Color.parseColor("#16213e"));
         button.setLayoutParams(params);
         button.setPadding(dpToPx(10), dpToPx(2), dpToPx(10), dpToPx(2));
+        // Prevent tab buttons from stealing focus from the terminal view.
+        button.setFocusable(false);
         return button;
     }
 
@@ -250,6 +290,9 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
                 parseIntPreference("terminal_columns", 80),
                 parseIntPreference("terminal_rows", 24));
         emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
+        if (extraBinPath != null) {
+            emulator.setExtraPath(extraBinPath);
+        }
 
         final TerminalView view = new TerminalView(this, emulator);
         view.setLayoutParams(new FrameLayout.LayoutParams(
@@ -328,9 +371,16 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
 
         refreshTabButtons();
         syncActiveModifierState();
-        TerminalSession active = getActiveSession();
+        final TerminalSession active = getActiveSession();
         if (active != null) {
-            active.view.requestFocus();
+            // Use post() to request focus after the current event (e.g. button click) fully
+            // completes, preventing the button from stealing focus back (fixes bug 12).
+            active.view.post(new Runnable() {
+                @Override
+                public void run() {
+                    active.view.requestFocus();
+                }
+            });
         }
     }
 

@@ -38,8 +38,14 @@ public class TerminalEmulator {
     private InputStream processOutput;
     private Thread readerThread;
     private volatile boolean running = false;
-    private boolean localEchoEnabled = true;
+    // Local echo is disabled: interactive shells handle their own echo.
+    // Enabling it caused double-echo and mangled variable expansion (e.g. $SHELL).
+    private boolean localEchoEnabled = false;
     private String preferredShell = "auto";
+    private String extraPath = null;
+
+    // Tracks the characters typed since the last newline for client-side tab completion.
+    private final StringBuilder inputLineBuffer = new StringBuilder();
 
     private TerminalListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -90,6 +96,18 @@ public class TerminalEmulator {
         }
     }
 
+    /**
+     * Sets an extra directory to prepend to PATH (used for bash wrapper and custom binaries).
+     */
+    public void setExtraPath(String extraPath) {
+        this.extraPath = extraPath;
+    }
+
+    /** Returns the current input line buffer for client-side tab completion. */
+    public String getInputLineBuffer() {
+        return inputLineBuffer.toString();
+    }
+
     public void start() {
         List<String[]> candidates = buildShellCandidates();
 
@@ -100,7 +118,8 @@ public class TerminalEmulator {
                 ProcessBuilder pb = new ProcessBuilder(cmd);
                 Map<String, String> env = pb.environment();
                 env.put("TERM", "xterm");
-                env.put("PATH", "/system/bin:/system/xbin:/sbin:/vendor/bin:/bin:/usr/bin");
+                String basePath = "/system/bin:/system/xbin:/sbin:/vendor/bin:/bin:/usr/bin";
+                env.put("PATH", extraPath != null ? extraPath + ":" + basePath : basePath);
                 env.put("COLUMNS", String.valueOf(columns));
                 env.put("LINES", String.valueOf(rows));
                 env.put("PS1", "blackterm$ ");
@@ -223,6 +242,20 @@ public class TerminalEmulator {
     public void sendText(String text) {
         if (text == null || text.length() == 0) {
             return;
+        }
+
+        // Update local input buffer for tab completion tracking.
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\n' || c == '\r') {
+                inputLineBuffer.setLength(0);
+            } else if (c == '\b' || c == 0x7f) {
+                if (inputLineBuffer.length() > 0) {
+                    inputLineBuffer.deleteCharAt(inputLineBuffer.length() - 1);
+                }
+            } else if (c >= ' ') {
+                inputLineBuffer.append(c);
+            }
         }
 
         if (localEchoEnabled) {
@@ -871,6 +904,123 @@ public class TerminalEmulator {
             }
         }
         candidates.add(candidate);
+    }
+
+    /**
+     * Attempts client-side tab completion for the current input line.
+     * Completes command names (first token) or file paths (subsequent tokens).
+     * Called when the TAB key is pressed.
+     */
+    public void performTabCompletion() {
+        String line = inputLineBuffer.toString();
+
+        // Find the partial word being completed (last token after the final space/slash)
+        int lastSpace = line.lastIndexOf(' ');
+        String prefix = lastSpace >= 0 ? line.substring(lastSpace + 1) : line;
+
+        if (prefix.length() == 0) {
+            // Nothing to complete - forward TAB to shell for normal handling
+            sendRaw("\t");
+            return;
+        }
+
+        boolean isFirstToken = lastSpace < 0;
+
+        if (isFirstToken) {
+            // Command completion: check PATH directories for matching executables
+            String pathEnv = "/system/bin:/system/xbin:/sbin:/vendor/bin";
+            if (extraPath != null) {
+                pathEnv = extraPath + ":" + pathEnv;
+            }
+            String[] pathDirs = pathEnv.split(":");
+            List<String> matches = new ArrayList<String>();
+            for (String dir : pathDirs) {
+                java.io.File d = new java.io.File(dir);
+                if (!d.isDirectory()) continue;
+                String[] files = d.list();
+                if (files == null) continue;
+                for (String f : files) {
+                    if (f.startsWith(prefix) && !matches.contains(f)) {
+                        matches.add(f);
+                    }
+                }
+            }
+            applyCompletions(prefix, matches);
+        } else {
+            // File/path completion
+            String dir;
+            String filePrefix;
+            int lastSlash = prefix.lastIndexOf('/');
+            if (lastSlash >= 0) {
+                dir = prefix.substring(0, lastSlash + 1);
+                filePrefix = prefix.substring(lastSlash + 1);
+            } else {
+                dir = ".";
+                filePrefix = prefix;
+            }
+
+            java.io.File dirFile = new java.io.File(dir.equals(".") ? "/" : dir);
+            List<String> matches = new ArrayList<String>();
+            String[] entries = dirFile.list();
+            if (entries != null) {
+                for (String entry : entries) {
+                    if (entry.startsWith(filePrefix)) {
+                        matches.add(entry);
+                    }
+                }
+            }
+            applyCompletions(filePrefix, matches);
+        }
+    }
+
+    private void applyCompletions(final String prefix, final List<String> matches) {
+        if (matches.isEmpty()) {
+            // No matches: ring bell
+            appendText("\007");
+            return;
+        }
+        if (matches.size() == 1) {
+            // Single match: complete inline
+            final String completion = matches.get(0).substring(prefix.length());
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    for (int i = 0; i < completion.length(); i++) {
+                        processChar(completion.charAt(i));
+                    }
+                    // Update input buffer with completion
+                    inputLineBuffer.append(completion);
+                    notifyUpdate();
+                }
+            });
+            // Also send to shell so its internal state stays consistent
+            if (processInput != null && running) {
+                try {
+                    processInput.write(completion.getBytes("UTF-8"));
+                    processInput.flush();
+                } catch (IOException ignored) {}
+            }
+        } else {
+            // Multiple matches: display them below current line
+            java.util.Collections.sort(matches);
+            StringBuilder sb = new StringBuilder("\r\n");
+            for (int i = 0; i < matches.size(); i++) {
+                sb.append(matches.get(i));
+                if (i < matches.size() - 1) sb.append("  ");
+            }
+            sb.append("\r\n");
+            appendText(sb.toString());
+        }
+    }
+
+    /** Sends raw bytes to the shell process without echo or buffer tracking. */
+    private void sendRaw(String text) {
+        if (processInput != null && running) {
+            try {
+                processInput.write(text.getBytes("UTF-8"));
+                processInput.flush();
+            } catch (IOException ignored) {}
+        }
     }
 
     // Getters
