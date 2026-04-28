@@ -345,7 +345,8 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
                 emulator.sendKeyCode(KeyEvent.KEYCODE_DEL);
                 return true;
             case KeyEvent.KEYCODE_TAB:
-                emulator.sendKeyCode(KeyEvent.KEYCODE_TAB);
+                // Use client-side tab completion; falls back to sending raw TAB if no candidates
+                emulator.performTabCompletion();
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
                 emulator.sendKeyCode(KeyEvent.KEYCODE_DPAD_UP);

@@ -17,3 +17,16 @@
 8. Could not scroll the terminal. [x] FIXED - Added real scrollback storage in TerminalEmulator and gesture-based viewport scrolling in TerminalView
 
 9. Could not select text in terminal. [x] FIXED - Added long-press selection, drag-to-expand selection, highlight rendering, and clipboard copy in TerminalView
+
+10. Write a release not according to the commits using Github actions [ ]
+
+11. It doesn't detect '$' as a variable sign, when I entered `echo $SHEEL` it returned `SHELL`. [x] FIXED - Disabled local echo; interactive shell handles its own echo, eliminating double-echo that mangled variable expansion display.
+
+12. After openning any new tab[one or more], in the terminal user input doesn't shown. [x] FIXED - All button bar and tab buttons set as non-focusable; `requestFocus()` on new terminal view deferred via `post()` so button click event cannot steal focus back.
+
+13. Add bash support in any way you can to this terminal.
+    When I entered `bash` command, it returned `/system/bin/sh: <stdin>[1]: bash: not found`. [x] FIXED - On startup a bash wrapper script is created in the app's private bin directory; the wrapper execs `/system/bin/sh -i`, and that directory is prepended to PATH so `bash` resolves to the wrapper.
+
+14. Tab command doesn't autocomplete file names or commands. [x] FIXED - Implemented client-side tab completion in TerminalEmulator: tracks current input line, scans PATH dirs for command completion (first token) and file system for path completion (subsequent tokens); single match auto-completes inline, multiple matches are displayed below the prompt.
+
+15. Exit command doesn't work. [ ]
