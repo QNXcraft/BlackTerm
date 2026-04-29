@@ -29,6 +29,10 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
         void onPasteRequested();
     }
 
+    public interface OnShellExitedListener {
+        void onShellExited(int exitCode);
+    }
+
     private TerminalEmulator emulator;
     private Paint textPaint;
     private Paint cursorPaint;
@@ -46,6 +50,7 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
     private boolean capsLockState = false;
     private boolean ctrlState = false;
     private OnPasteRequestedListener pasteRequestedListener;
+    private OnShellExitedListener shellExitedListener;
 
     private GestureDetector gestureDetector;
     private Handler blinkHandler = new Handler();
@@ -339,6 +344,7 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
         switch (keyCode) {
             case KeyEvent.KEYCODE_ENTER:
+                scrollToBottom();
                 emulator.sendKeyCode(KeyEvent.KEYCODE_ENTER);
                 return true;
             case KeyEvent.KEYCODE_DEL:
@@ -386,6 +392,10 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
 
     public void setOnPasteRequestedListener(OnPasteRequestedListener listener) {
         this.pasteRequestedListener = listener;
+    }
+
+    public void setOnShellExitedListener(OnShellExitedListener listener) {
+        this.shellExitedListener = listener;
     }
 
     public void setTerminalBackgroundColor(int color) {
@@ -443,6 +453,13 @@ public class TerminalView extends View implements TerminalEmulator.TerminalListe
     @Override
     public void onTitleChanged(String title) {
         // Can be used to update activity title
+    }
+
+    @Override
+    public void onShellExited(int exitCode) {
+        if (shellExitedListener != null) {
+            shellExitedListener.onShellExited(exitCode);
+        }
     }
 
     private void showKeyboard() {

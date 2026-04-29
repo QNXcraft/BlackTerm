@@ -250,6 +250,51 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         });
         bar.addView(capsButton);
 
+        // Arrow key buttons for terminal navigation (bug 16)
+        LinearLayout.LayoutParams arrowParams = new LinearLayout.LayoutParams(
+                0, dpToPx(42), 0.7f);
+        arrowParams.setMargins(dpToPx(2), 0, dpToPx(2), 0);
+
+        Button upButton = createBarButton("\u2191", arrowParams);
+        upButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                TerminalSession s = getActiveSession();
+                if (s != null) s.emulator.sendKeyCode(KeyEvent.KEYCODE_DPAD_UP);
+            }
+        });
+        bar.addView(upButton);
+
+        Button downButton = createBarButton("\u2193", arrowParams);
+        downButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                TerminalSession s = getActiveSession();
+                if (s != null) s.emulator.sendKeyCode(KeyEvent.KEYCODE_DPAD_DOWN);
+            }
+        });
+        bar.addView(downButton);
+
+        Button leftButton = createBarButton("\u2190", arrowParams);
+        leftButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                TerminalSession s = getActiveSession();
+                if (s != null) s.emulator.sendKeyCode(KeyEvent.KEYCODE_DPAD_LEFT);
+            }
+        });
+        bar.addView(leftButton);
+
+        Button rightButton = createBarButton("\u2192", arrowParams);
+        rightButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                TerminalSession s = getActiveSession();
+                if (s != null) s.emulator.sendKeyCode(KeyEvent.KEYCODE_DPAD_RIGHT);
+            }
+        });
+        bar.addView(rightButton);
+
         return bar;
     }
 
@@ -302,6 +347,26 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
             @Override
             public void onPasteRequested() {
                 pasteClipboard();
+            }
+        });
+        view.setOnShellExitedListener(new TerminalView.OnShellExitedListener() {
+            @Override
+            public void onShellExited(int exitCode) {
+                // Auto-restart the shell 1.5 s after exit so that typing `exit` works naturally.
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (sessions.contains(session)) {
+                            session.emulator.reset();
+                            session.emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
+                            if (extraBinPath != null) {
+                                session.emulator.setExtraPath(extraBinPath);
+                            }
+                            session.emulator.start();
+                            session.view.requestFocus();
+                        }
+                    }
+                }, 1500);
             }
         });
         applyPreferencesToView(view, prefs);

@@ -22,6 +22,7 @@ public class TerminalEmulator {
     public interface TerminalListener {
         void onScreenUpdate();
         void onTitleChanged(String title);
+        void onShellExited(int exitCode);
     }
 
     private int columns;
@@ -123,7 +124,18 @@ public class TerminalEmulator {
                 env.put("COLUMNS", String.valueOf(columns));
                 env.put("LINES", String.valueOf(rows));
                 env.put("PS1", "blackterm$ ");
-                pb.directory(new java.io.File("/"));
+                // Choose a useful home directory: prefer /sdcard, fallback to /data/local/tmp, then /
+                java.io.File workDir = new java.io.File("/");
+                String[] homeCandidates = {"/sdcard", "/storage/emulated/0", "/data/local/tmp"};
+                for (String h : homeCandidates) {
+                    java.io.File f = new java.io.File(h);
+                    if (f.isDirectory() && f.canRead()) {
+                        workDir = f;
+                        break;
+                    }
+                }
+                env.put("HOME", workDir.getAbsolutePath());
+                pb.directory(workDir);
                 pb.redirectErrorStream(true);
 
                 process = pb.start();
@@ -144,9 +156,17 @@ public class TerminalEmulator {
                     @Override
                     public void run() {
                         try {
-                            int exitCode = process.waitFor();
-                            if (running) {
-                                appendText("\r\n[Shell exited: " + exitCode + "]\r\n");
+                            final int exitCode = process.waitFor();
+                            appendText("\r\n[Shell exited: " + exitCode + "]\r\n");
+                            if (listener != null) {
+                                mainHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (listener != null) {
+                                            listener.onShellExited(exitCode);
+                                        }
+                                    }
+                                });
                             }
                         } catch (InterruptedException ignored) {
                             Thread.currentThread().interrupt();
