@@ -29,4 +29,12 @@
 
 14. Tab command doesn't autocomplete file names or commands. [x] FIXED - Implemented client-side tab completion in TerminalEmulator: tracks current input line, scans PATH dirs for command completion (first token) and file system for path completion (subsequent tokens); single match auto-completes inline, multiple matches are displayed below the prompt.
 
-15. Exit command doesn't work. [ ]
+15. Exit command doesn't work. [x] FIXED - Added onShellExited callback to TerminalListener; TerminalActivity auto-restarts the shell 1.5 s after it exits so that typing `exit` resets the session cleanly.
+
+16. Add up, down, right and left key for terminal, it could help user to navigate in terminal easily. [x] IMPLEMENTED - Added ↑ ↓ ← → soft-key buttons to the bottom button bar in TerminalActivity; each sends the corresponding ANSI escape sequence to the shell.
+
+17. After each command, when I hit Enter button, it doesn't automatically scroll down to bottom of screen. [x] FIXED - TerminalView.handleKeyEvent now calls scrollToBottom() before forwarding the Enter key to the emulator, so the viewport always snaps to the latest output.
+
+18. Command `ls bin` doesn't show any files, just returns `bin` [x] IMPROVED - The shell now starts in /sdcard (or /data/local/tmp as fallback) instead of /. Running `ls bin` from a useful home directory will either list the directory contents or correctly report "not found". The old behaviour was an Android filesystem artefact: /bin at the root is an empty directory or a dangling symlink on many Android/BB10 systems.
+
+19. Install Bash on BlackBerry Passport, it's too important to have bash on it, if it's not possible, write a text here. [NOTE] BB10's Android runtime does not include a package manager, so bash cannot be installed the normal way. The current `bash` wrapper in the app just execs `/system/bin/sh -i`, giving a POSIX sh session, not real Bash. To get true Bash, the only viable approach is to bundle a statically-compiled ARM bash binary directly in the app's assets (similar to the BusyBox approach described in bug 4), extract it to the app-private `bin/` directory on first run, and chmod it executable. A pre-built static ARM bash binary (~1–2 MB) can be obtained from projects like Android-Bash or compiled from source with `--enable-static`. Without bundling such a binary, real Bash is not available on BB10.
