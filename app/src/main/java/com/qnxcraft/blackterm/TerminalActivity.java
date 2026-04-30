@@ -26,6 +26,7 @@ import android.widget.PopupMenu;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 import com.qnxcraft.blackterm.terminal.TerminalEmulator;
 import com.qnxcraft.blackterm.terminal.TerminalView;
@@ -104,9 +105,10 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
     }
 
     /**
-     * Creates a tiny bash wrapper script in the app's private bin directory so that
-     * typing `bash` in the terminal finds an executable instead of returning "not found".
-     * The wrapper simply exec's the system sh with interactive mode.
+     * Extracts the bundled static bash ARMv7 binary from assets into the app's private bin
+     * directory so that typing `bash` in the terminal uses real GNU Bash 5.2 (statically
+     * linked with musl, from robxu9/bash-static).  Falls back to an sh-wrapper for `zsh`
+     * since no static zsh is bundled.
      */
     private void setupBashWrapper() {
         File binDir = new File(getFilesDir(), "bin");
@@ -115,17 +117,40 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
         }
         extraBinPath = binDir.getAbsolutePath();
 
-        String[] wrappers = {"bash", "zsh"};
-        for (String name : wrappers) {
-            File wrapper = new File(binDir, name);
-            if (!wrapper.exists()) {
+        // Extract the real static bash binary from assets on first install / after update.
+        File bashBin = new File(binDir, "bash");
+        if (!bashBin.exists()) {
+            try {
+                InputStream in = getAssets().open("bash-armv7");
+                FileOutputStream out = new FileOutputStream(bashBin);
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                }
+                in.close();
+                out.close();
+                bashBin.setExecutable(true, false);
+            } catch (IOException e) {
+                // Asset missing or copy failed – fall back to sh wrapper
                 try {
-                    FileOutputStream fos = new FileOutputStream(wrapper);
+                    FileOutputStream fos = new FileOutputStream(bashBin);
                     fos.write(("#!/system/bin/sh\nexec /system/bin/sh -i \"$@\"\n").getBytes("UTF-8"));
                     fos.close();
-                    wrapper.setExecutable(true, false);
+                    bashBin.setExecutable(true, false);
                 } catch (IOException ignored) {}
             }
+        }
+
+        // zsh wrapper (sh-backed, no static binary bundled)
+        File zshBin = new File(binDir, "zsh");
+        if (!zshBin.exists()) {
+            try {
+                FileOutputStream fos = new FileOutputStream(zshBin);
+                fos.write(("#!/system/bin/sh\nexec /system/bin/sh -i \"$@\"\n").getBytes("UTF-8"));
+                fos.close();
+                zshBin.setExecutable(true, false);
+            } catch (IOException ignored) {}
         }
     }
 
