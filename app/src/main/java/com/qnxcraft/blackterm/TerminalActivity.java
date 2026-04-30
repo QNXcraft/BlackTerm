@@ -378,18 +378,17 @@ public class TerminalActivity extends Activity implements SharedPreferences.OnSh
             @Override
             public void onShellExited(int exitCode) {
                 // Auto-restart the shell 1.5 s after exit so that typing `exit` works naturally.
+                // Use emulator/view directly (both are effectively final at this point).
                 new Handler().postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        if (sessions.contains(session)) {
-                            session.emulator.reset();
-                            session.emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
-                            if (extraBinPath != null) {
-                                session.emulator.setExtraPath(extraBinPath);
-                            }
-                            session.emulator.start();
-                            session.view.requestFocus();
+                        emulator.reset();
+                        emulator.setPreferredShell(prefs.getString("shell_command", "auto"));
+                        if (extraBinPath != null) {
+                            emulator.setExtraPath(extraBinPath);
                         }
+                        emulator.start();
+                        view.requestFocus();
                     }
                 }, 1500);
             }
